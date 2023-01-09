@@ -398,9 +398,7 @@ def remove_callable(gc, marker='ref_'):
     if 'meta_data' in gc and isinstance(gc['meta_data'], dict) and 'function' in gc['meta_data']:
         python = gc['meta_data']['function']['python3']['0']
         if 'imports' in python:
-            print(import_references)
-            print(python['imports'])
-            for impt in python['imports']:
+            for impt in filter(lambda x: x.get('name', '-') in import_references, python['imports']):
                 import_references[impt['name']] -= 1
             cruft = [name for name, count in import_references.items() if not count]
             if cruft:
