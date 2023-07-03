@@ -1,26 +1,27 @@
 """The GC Execution environment."""
 
-from logging import getLogger, NullHandler, DEBUG, captureWarnings
+from logging import getLogger, NullHandler, DEBUG, captureWarnings, Logger
 from egp_types.ep_type import asstr
-from egp_types.gc_graph import const_idx, ref_idx
+from egp_types.egp_typing import ConnectionRow, ConstantRow, CPI, CVI
 
 
-_logger = getLogger(__name__)
+_logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
+
 captureWarnings(True)
-_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
-_OVER_MAX = 1 << 64
-_MASK = _OVER_MAX - 1
+_LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
+_OVER_MAX: int = 1 << 64
+_MASK: int = _OVER_MAX - 1
 
 # Count the number of references to each imported object
 # If it reaches 0 the import can be removed.
 # Keys = import name: values = reference count
-import_references = {}
+import_references:dict[str, int] = {}
 
 class magic_mapping_list(list):
     """Limited use class used for mapping function argument templates to default values."""
 
-    def __init__(self, name, template=True):
+    def __init__(self, name: str, template: bool = True) -> None:
         """Vanilla empty list with a default for non-existant elements.
 
         Args
@@ -29,14 +30,14 @@ class magic_mapping_list(list):
         template (bool): Make default returned string a template (enclose in {})
         """
         super().__init__()
-        self.name = name
-        self.template = template
+        self.name: str = name
+        self.template: bool = template
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """Default representation is just the template text."""
         return '{' + self.name + '}' if self.template else self.name
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int):
         """Return a default value if index does not exist.
 
         Otherwise works like a vanilla list.
@@ -115,7 +116,7 @@ def write_args(arg_list):
     return 'tuple()'
 
 
-def arg_list(iab, c, ref_str, template=False):
+def arg_list(iab_row: ConnectionRow, c_row: ConstantRow, ref_str: str, template: bool = False) -> list[str]:
     """Create an argument list
 
     All functions take a single tuple argument.
@@ -124,7 +125,7 @@ def arg_list(iab, c, ref_str, template=False):
 
     Args
     ----
-    iab (graph[iab]): I, A or B row definition froma GC application graph
+    iab (graph[iab]): I, A or B row definitio an froma GC application graph
     c (graph['C']): Row C definition or None if row C is not defined
     ref_str (str): String representation of the GC reference.
     template (bool): If True wrap variable names in {}
@@ -133,14 +134,14 @@ def arg_list(iab, c, ref_str, template=False):
     -------
     (list(str)): Argument string e.g. ['{a_023c9f0d[0]}', '{i_894dea21[4]}', 'constant_string',]
     """
-    args = []
-    if iab is not None:
-        for arg in iab:
-            row = arg[ref_idx.ROW]
+    args: list[str] = []
+    if iab_row is not None:
+        for arg in iab_row:
+            row = arg[CPI.ROW.value]
             if row == 'C':
-                args.append(str(c[arg[const_idx.VALUE]]))
+                args.append(c_row[arg[CVI.VAL.value]])
             else:
-                args.append('{' + row.lower() + '_' + ref_str + '[' + str(arg[ref_idx.INDEX]) + ']}')
+                args.append('{' + row.lower() + '_' + ref_str + '[' + str(arg[CPI.IDX.value]) + ']}')
             if template:
                 args[-1] = '{{' + args[-1] + '}}'
     return args
@@ -184,7 +185,8 @@ def code_body(gc, gpc, max_depth, marker):
         format_dict = {'c' + str(i): v for i, v in enumerate(graph['C'])} if 'C' in graph else {}
         format_dict.update({'i' + str(i): f'{{i_{ref_str}[{i}]}}' for i in range(len(gc['inputs']))})
         code = gc['meta_data']['function']['python3']['0']
-        if 'code' in code: cb_dict['A'] = "\t" + code['code'].format_map(format_dict) + "\n"
+        if 'code' in code:
+            cb_dict['A'] = "\t" + code['code'].format_map(format_dict) + "\n"
         formatted_inline = f'\t{{o_{ref_str}}} = (' + code['inline'].format_map(format_dict) + ',)\n'
         cb_dict['A'] += formatted_inline
         #if _LOG_DEBUG: cb_dict['O'] += f"\t_logger.debug(f\"{ref_str}: {formatted_inline} = {{{{{formatted_inline}}}}}\")\n"
@@ -309,13 +311,11 @@ def create_callable(gc, gpc, max_depth=20, marker='ref_'):
         inspect = [gc]
         while inspect:
             g = inspect.pop()
-            for ref in ('gca_ref', 'gcb_ref'):
-                gcx_ref = g[ref]
-                if gcx_ref is not None:   # No path
-                    gcx = gpc[gcx_ref]
-                    if gcx['cb'] is None:  # Path not yet processed
-                        path.append(gcx)
-                        inspect.append(gcx)
+            for gcx_ref in filter(lambda x: x is not None, (g['gca_ref'], g['gcb_ref'])):
+                gcx = gpc[gcx_ref]
+                if gcx['cb'] is None:  # Path not yet processed
+                    path.append(gcx)
+                    inspect.append(gcx)
 
         # Path contains all the executables that need to be created in reverse order
         # Because GC's can be inlined there is a difference between having a defined code block and
