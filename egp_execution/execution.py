@@ -379,7 +379,7 @@ def create_exec(gc, marker):
     if global_name not in globals():
         callable_imports(gc)
         exec(callable_string(gc, marker), globals())
-        return globals()[global_name]
+    return globals()[global_name]
 
 
 def remove_callable(gc, marker='ref_'):
